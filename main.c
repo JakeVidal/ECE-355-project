@@ -59,6 +59,9 @@ void myLCD_Init(void);
 void LCD_command(uint16_t command);
 void LCD_8b_transfer(uint8_t data);
 void LCD_update(uint16_t frequency, uint16_t resistance);
+void myGPIOC_Init(void);
+void myADC_Init(void);
+uint16_t POT_value(void);
 
 // Your global variables...
 uint8_t firstEdge = 1;
@@ -80,12 +83,17 @@ main(int argc, char* argv[])
 	myGPIOB_Init();		/* Initialize I/O port PB */
 	mySPI_Init();		/* Initialize SPI */
 	myLCD_Init();		/* Initialize LCD */
+	myGPIOC_Init();		/* Initialize I/O port PC */
+	myADC_Init(); 		/* Initialize ADC */
 
 	while (1)
 	{
-		//frequency = 4567;
-		//resistance = 1234;
-		LCD_update((uint16_t)4567, (uint16_t)1234);
+		uint16_t temp =  POT_value();
+		trace_printf("ADC val: %8X s,\n", temp);
+
+		frequency = 24567.89;
+		//resistance = 21234.56;
+		LCD_update((uint16_t)frequency, temp);
 	}
 
 	return 0;
@@ -106,6 +114,14 @@ void myGPIOA_Init()
 	/* Ensure no pull-up/pull-down for PA1 */
 	// Relevant register: GPIOA->PUPDR
 	GPIOA->PUPDR &= (uint32_t)0xFFFFFFF3; // 0x00 is no pullup/pulldown
+
+	/* Configure PA4 as analog */
+	// Relevant register: GPIOA->MODER
+	GPIOA->MODER |= (uint32_t)0x300; // 11 is analog
+
+	/* Ensure no pull-up/pull-down for PA4 */
+	// Relevant register: GPIOA->PUPDR
+	GPIOA->PUPDR &= (uint32_t)0xFFFFFCFF; // 00 is no pullup/pulldown
 }
 
 
@@ -378,6 +394,69 @@ void LCD_update(uint16_t frequency, uint16_t resistance){
     LCD_command(0x0200 | 0x0030 | res4); //digit 4
     LCD_command(0x0200 | 0x004F); //O
     LCD_command(0x0200 | 0x0068); //h
+}
+
+void myADC_Init()
+{
+	/* Enable clock for ADC  peripheral */
+	RCC->APB2ENR |= (uint32_t)0x200;
+
+	/* Enable ADC clock */
+	//ADC1->CFGR2 &= (uint32_t)0x3FFFFFFF; // Set bits 31:30 for asynchronous mode
+
+	/* Calibrate the ADC */
+	ADC1->CR |= (uint32_t)0x80000000;
+	while ((ADC1->CR & 0x80000000) != 0) {};
+
+	/* Configure ADC for continuous mode */
+	ADC1->CFGR1 |= (uint32_t)0x2000; // Set bit 13 for continuous mode
+
+	/* Configure ADC for overrun mode */
+	ADC1->CFGR1 |= (uint32_t)0x1000; // Set bit 12 for overrun mode
+
+	/* Configure ADC for right data alignment */
+	ADC1->CFGR1 &= (uint32_t)0xFFFFFFDF; // Set bit 5 for right data alignment
+
+	/* Set ADC resolution to 12 bits */
+	ADC1->CFGR1 &= (uint32_t)0xFFFFFFE7; // Set bits 4:3 for 12 bit data resolution
+
+	/* Configure ADC channel 11 for conversion */
+	ADC1->CHSELR |= (uint32_t)0x800; // Set bit 11 to enable ADC channel 11
+
+	/* Configure ADC sampling speed */
+	ADC1->SMPR &= (uint32_t)0xFFFFFFF8; 	// Set bits 2:0 for sampling speed
+
+	/* Enable ADC for conversion */
+	ADC1->CR |= (uint32_t)0x1;
+	while((ADC1->ISR & 0x1) != 1) {};
+}
+
+
+void myGPIOC_Init()
+{
+	/* Enable clock for GPIOC  peripheral */
+	RCC->AHBENR |= (uint32_t)0x80000;
+
+	/* Configure PC1 as analog */
+	GPIOC->MODER |= (uint32_t)0xC;
+
+	/* Ensure no pull-up/pulldown for PC1 */
+	GPIOC->PUPDR &= (uint32_t)0xFFFFFFF3;
+}
+
+uint16_t POT_value(void)
+{
+	// Start ADC conversion
+	ADC1->CR |= (uint32_t)0x4;
+
+	// Wait for ADC to finish
+	while((ADC1->ISR & 0x4) == 0) {};
+
+	// Reset flag
+	ADC1->ISR &= (uint32_t)0xFFFFFFFB;
+
+	return (ADC1->DR & 0x0FFF);
+
 }
 
 #pragma GCC diagnostic pop
