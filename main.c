@@ -62,6 +62,8 @@ void LCD_update(uint16_t frequency, uint16_t resistance);
 void myGPIOC_Init(void);
 void myADC_Init(void);
 uint16_t POT_value(void);
+void myDAC_Init(void);
+uint16_t DAC_value(uint16_t pot);
 
 // Your global variables...
 uint8_t firstEdge = 1;
@@ -72,9 +74,8 @@ float resistance = 0;
 
 int
 main(int argc, char* argv[])
-{
+ {
 
-	trace_printf("This is Part 2 of Introductory Lab...\n");
 	trace_printf("System clock: %u Hz\n", SystemCoreClock);
 
 	myGPIOA_Init();		/* Initialize I/O port PA */
@@ -85,15 +86,20 @@ main(int argc, char* argv[])
 	myLCD_Init();		/* Initialize LCD */
 	myGPIOC_Init();		/* Initialize I/O port PC */
 	myADC_Init(); 		/* Initialize ADC */
+	myDAC_Init();		/* Initialize DAC */
 
 	while (1)
 	{
-		uint16_t temp =  POT_value();
-		trace_printf("ADC val: %8X s,\n", temp);
+		uint16_t pot =  POT_value();
 
-		frequency = 24567.89;
-		//resistance = 21234.56;
-		LCD_update((uint16_t)frequency, temp);
+		//convert pot value to resistance
+		resistance = (pot)/((float)0xFFF);
+		resistance = resistance*5000;
+
+		//update DAC output
+		DAC->DHR12R1 = (DAC_value(pot) & ((uint16_t)0xFFF));
+
+		LCD_update((uint16_t)frequency, (uint16_t)resistance);
 	}
 
 	return 0;
@@ -223,10 +229,6 @@ void EXTI0_1_IRQHandler()
 			cycles = TIM2->CNT; //read count register
 			period = cycles/SystemCoreClock; //calculate period
 			frequency = 1/period; //calculate frequency
-
-			//print results to console
-			trace_printf("Period: %8.9f s,   ", period);
-			trace_printf("Frequency: %8.3f Hz\n", frequency);
 
 			firstEdge = 1; //set first edge flag
 
@@ -371,6 +373,10 @@ void LCD_update(uint16_t frequency, uint16_t resistance){
     res2 = ((resistance - res4 - (10 * res3)) % 1000) / 100; //get 2nd digit of resistance
     res1 = resistance / 1000; // get 1st digit of resistance
 
+
+    //delay
+    for (int a = 1; a <= 10000; a++){}
+
     //set address to first line
     LCD_command(0x0080);
 
@@ -456,6 +462,25 @@ uint16_t POT_value(void)
 	ADC1->ISR &= (uint32_t)0xFFFFFFFB;
 
 	return (ADC1->DR & 0x0FFF);
+
+}
+
+void myDAC_Init()
+{
+	// Enable clock for DAC  peripheral
+	RCC->APB1ENR |= (uint32_t)0x20000000;
+
+	// Enable DAC
+	DAC->CR |= (uint32_t)0x1;
+}
+
+uint16_t DAC_value(uint16_t pot)
+{
+	float range = (3.3 - 0.7);
+	float voltage = (((float)pot*range)/((float)0xFFF)) + 0.7;
+	float output = (voltage/3.3)*((float)0xFFF);
+
+	return ((uint16_t)output);
 
 }
 
